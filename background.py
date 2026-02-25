@@ -34,7 +34,6 @@ for cam_id in range(1, 5):
         if len(frames) >= max_frames_used:
             break
 
-    video.release()
     print("Sampled frames:", len(frames))
 
     # getting the mean of them 
@@ -44,7 +43,7 @@ for cam_id in range(1, 5):
 
     cv2.imwrite(f"background_mean{cam_id}.png", mean_uint8)
 
-    background = cv2.imread("background_mean.png") 
+    background = cv2.imread(f"background_mean{cam_id}.png") 
 
     while True:
         ret, frame = video.read()
@@ -72,16 +71,72 @@ for cam_id in range(1, 5):
     cv2.destroyAllWindows()
 
 
-# PART 2: LOADING THE BACKGROUND MODEL AND ...
+# PART 2: LOADING THE BACKGROUND MODEL AND DO BACKGROUND SUBSTRACTION
 
-background_bgr = cv2.imread("background.png")
-background_hsv = cv2.cvtColor(background_bgr, cv2.COLOR_BGR2HSV)
-Hb, Sb, Vb = cv2.split(background_hsv)
+# defining thresholds
+
+threshold_H = 10     # hue difference threshold (0..179, but circular)
+threshold_S = 40     # saturation difference threshold (0..255)
+threshold_V = 40     # value difference threshold (0..255)
 
 for cam_id in range(1,5):
 
-    vid = cv2.VideoCapture("video.avi")
-    ret, frame_bgr = vid.read()
+    # background different channels 
+    background_bgr = cv2.imread(f"background_mean{cam_id}.png")
+    background_hsv = cv2.cvtColor(background_bgr, cv2.COLOR_BGR2HSV)
+    Hb, Sb, Vb = cv2.split(background_hsv)
+
+    # frame's different channels
+    video_path = os.path.join(SCRIPT_DIR, "data", f"cam{cam_id}", "video.avi")
+    vid = cv2.VideoCapture(video_path)
+
+    while True:
+        ret, frame_bgr = vid.read()
+        if not ret:
+            break
+        frame_hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+        Hf, Sf, Vf = cv2.split(frame_hsv)
+
+        # compute the differences
+        dH = cv2.absdiff(Hf, Hb)
+        dH = cv2.min(dH, 180 - dH)  # this is becayse H is circular so we do need to adjust
+
+        dS = cv2.absdiff(Sf, Sb)
+        dV = cv2.absdiff(Vf, Vb)
+
+        # compute the masks by comparing with the thresholds 
+        maskH = (dH > threshold_H).astype(np.uint8) * 255
+        maskS = (dS > threshold_S).astype(np.uint8) * 255
+        maskV = (dV > threshold_V ).astype(np.uint8) * 255
+
+        # combining 
+        mask = cv2.bitwise_or(maskH, maskS)
+        mask = cv2.bitwise_or(mask, maskV)
+
+        # postprocessing 
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+        cv2.imshow(f"cam{cam_id} frame", frame_bgr)
+        cv2.imshow(f"cam{cam_id} mask", mask)
+
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+            
+    vid.release()
+
+    cv2.destroyAllWindows()
+
+
+    
+
+
+
+
+
+
+
 
     
 
