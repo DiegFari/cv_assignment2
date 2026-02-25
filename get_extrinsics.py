@@ -47,6 +47,7 @@ def get_manual_corners(image: np.ndarray, pattern_size: tuple[int, int]):
 
         if len(clicked_points) == 4: # all the corners have been pressed
             break
+    
 
     cv2.destroyWindow("manual corners") # once we collected all the corners, we can kill the window
 
@@ -95,6 +96,29 @@ def get_manual_corners(image: np.ndarray, pattern_size: tuple[int, int]):
     print("TL:", tl, "TR:", tr, "BR:", br, "BL:", bl)
     return corners 
 
+def save_camera_config_xml(path: str, K: np.ndarray, dist: np.ndarray, rvec: np.ndarray, tvec: np.ndarray):
+         """
+         This functions save extrinsics + intrinsics in the format requried in a config file
+         """
+
+         os.makedirs(os.path.dirname(path), exist_ok=True)
+
+         R, _ = cv2.Rodrigues(rvec)
+         R = R.astype(np.float32)
+
+         fs = cv2.FileStorage(path, cv2.FILE_STORAGE_WRITE)
+        
+        # Intrisiscs 
+         fs.write("CameraMatrix", K)
+         fs.write("DistortionCoeffs", dist)
+
+         # Extrinsics
+         fs.write("Rvec", rvec)
+         fs.write("Tvec", tvec)
+         fs.write("RotationMatrix", R)
+
+         fs.release()
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  
 
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -136,7 +160,7 @@ for cam_id in range(1, 5):
               print(f"camera {cam_id}: FAILED CORNER DETECTION")
               break
         
-        ok, rvec, tvec = cv2.solvePnP(objp, corners, K, dist, flags=cv2.SOLVEPNP_ITERATIVE)
+        ok, rvec, tvec = cv2.solvePnP(objp, corners2, K, dist, flags=cv2.SOLVEPNP_ITERATIVE)
 
         if not ok: 
               print(f"camera {cam_id}: solvePnp failed")
@@ -171,6 +195,11 @@ for cam_id in range(1, 5):
         copy = draw(copy, imgpts)
         cv2.imshow(f'drawn image for camera {cam_id}',cv2.resize(copy, (768, 1024)))
         k = cv2.waitKey(0) & 0xFF
+
+        config_path = os.path.join(SCRIPT_DIR, "data", f"cam{cam_id}", "config.xml")
+
+        save_camera_config_xml(config_path, K, dist, rvec, tvec)
+
 
 
 
