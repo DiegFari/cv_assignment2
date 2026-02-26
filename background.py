@@ -2,6 +2,54 @@ import cv2
 import numpy as np
 import os
 
+# checks different combinations of thresholds against ground truth mask and returns the ones that have the least differences/mistakes. Uses cam1.
+def auto_set_thresholds(mask, frame):
+    mask_gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+    # there are some gray pixels in the mask because of how foreground removal works in gimp, so it was easier to force all pixels to be black/white like this
+    _, mask_gray = cv2.threshold(mask_gray, 127, 255, cv2.THRESH_BINARY)
+
+    background_bgr = cv2.imread("background_mean1.png")
+    background_hsv = cv2.cvtColor(background_bgr, cv2.COLOR_BGR2HSV)
+    Hb, Sb, Vb = cv2.split(background_hsv)
+
+
+    frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    Hf, Sf, Vf = cv2.split(frame_hsv)
+
+    dH = cv2.absdiff(Hf, Hb)
+    dH = cv2.min(dH, 180 - dH)
+
+    dS = cv2.absdiff(Sf, Sb)
+    dV = cv2.absdiff(Vf, Vb)
+
+    # score = amount of mistakes, so lower is better
+    best_score = 99999999999
+    best_H = 0
+    best_S = 0
+    best_V = 0
+
+    for H in range(0, 30, 2):
+        for S in range(0, 80, 5):
+            for V in range(0, 80, 5):
+                maskH = (dH > H).astype(np.uint8) * 255
+                maskS = (dS > S).astype(np.uint8) * 255
+                maskV = (dV > V).astype(np.uint8) * 255
+
+                test_mask = cv2.bitwise_or(maskH, maskS)
+                test_mask = cv2.bitwise_or(test_mask, maskV)
+
+                #255 = wrong, 0 = correct
+                diff = cv2.bitwise_xor(test_mask, mask_gray)    
+                score = np.sum(diff) / 255
+
+                if score < best_score:
+                    best_score = score
+                    best_H = H
+                    best_S = S
+                    best_V = V
+
+    return best_H, best_S, best_V                    
+    
 
 # PART 1: CREATING THE BACKGROUND MODEL
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  
@@ -73,11 +121,18 @@ for cam_id in range(1, 5):
 
 # PART 2: LOADING THE BACKGROUND MODEL AND DO BACKGROUND SUBSTRACTION
 
-# defining thresholds
+# defining thresholds (overwritten later)
 
 threshold_H = 10     # hue difference threshold (0..179, but circular)
 threshold_S = 40     # saturation difference threshold (0..255)
 threshold_V = 40     # value difference threshold (0..255)
+
+#automatic threshold detection (choice 2)
+
+test_frame = cv2.imread("cam1_frame.png")
+ground_truth_mask = cv2.imread("cam1_mask.png")
+threshold_H, threshold_S, threshold_V = auto_set_thresholds(ground_truth_mask, test_frame)
+print(f"Thresholds: h= {threshold_H},s= {threshold_S},v= {threshold_V}")
 
 for cam_id in range(1,5):
 
@@ -116,7 +171,7 @@ for cam_id in range(1,5):
         # postprocessing 
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
 
         cv2.imshow(f"cam{cam_id} frame", frame_bgr)
         cv2.imshow(f"cam{cam_id} mask", mask)
@@ -127,10 +182,6 @@ for cam_id in range(1,5):
     vid.release()
 
     cv2.destroyAllWindows()
-
-
-    
-
 
 
 
