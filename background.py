@@ -3,6 +3,7 @@ import numpy as np
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  
+DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 
 # checks different combinations of thresholds against ground truth mask and returns the ones that have the least differences/mistakes. Uses cam1.
 def auto_set_thresholds(mask, frame):
@@ -124,6 +125,12 @@ def run_background_subtraction(threshold_H, threshold_S, threshold_V):
 
     for cam_id in range(1,5):
 
+        cam_dir = os.path.join(DATA_DIR, f"cam{cam_id}")
+        masks_dir = os.path.join(cam_dir, "masks")
+        os.makedirs(masks_dir, exist_ok=True)
+
+        frame_idx = 0
+
         # background different channels 
         background_bgr = cv2.imread(f"background_mean{cam_id}.png")
         background_hsv = cv2.cvtColor(background_bgr, cv2.COLOR_BGR2HSV)
@@ -163,6 +170,10 @@ def run_background_subtraction(threshold_H, threshold_S, threshold_V):
 
             cv2.imshow(f"cam{cam_id} frame", frame_bgr)
             cv2.imshow(f"cam{cam_id} mask", mask)
+
+            out_path = os.path.join(masks_dir, f"{frame_idx:06d}.png")
+            cv2.imwrite(out_path, mask)
+            frame_idx += 1
 
             if cv2.waitKey(1) & 0xFF == 27:
                 break
