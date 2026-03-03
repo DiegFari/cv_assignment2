@@ -13,6 +13,30 @@ FRAME_IDX = 0
 WORLD_SCALE = 0.05
 WORLD_OFFSET = np.array([-2.05, 0.45, -2.30], dtype=np.float32)
 
+
+def debug_print_camera_centers_converted():
+    for cam_id in range(1, 5):
+        _, _, rvec, tvec, _ = load_camera_config(cam_id)
+        R, _ = cv2.Rodrigues(rvec)
+        C_cv = (-R.T @ tvec).reshape(3)
+
+        X, Y, Z = from_opencv_world(C_cv[0], C_cv[1], C_cv[2])
+        print(f"cam {cam_id} center (your world): [{X:.3f}, {Y:.3f}, {Z:.3f}]")
+
+def to_opencv_point(X, Y, Z):
+    return (
+        X * WORLD_SCALE + WORLD_OFFSET[0],
+        Z * WORLD_SCALE  + WORLD_OFFSET[1],
+        Y * WORLD_SCALE + WORLD_OFFSET[2],
+    )
+
+def from_opencv_world(Xcv, Ycv, Zcv):
+    # Inverse of to_opencv_point (ignoring any camera projection stuff)
+    X = (Xcv - WORLD_OFFSET[0]) / WORLD_SCALE
+    Z = (Ycv - WORLD_OFFSET[1]) / WORLD_SCALE  # OpenCV Y was your Z
+    Y = (Zcv - WORLD_OFFSET[2]) / WORLD_SCALE  # OpenCV Z was your Y
+    return float(X), float(Y), float(Z)
+
 def np_R_to_glm_mat4(R: np.ndarray) -> glm.mat4:
     R = np.asarray(R, dtype=np.float32)
     assert R.shape == (3, 3), f"Expected (3,3), got {R.shape}"
@@ -101,12 +125,6 @@ def set_voxel_positions(width, height, depth):
             K, dist, rvec, tvec, _ = load_camera_config(cam_id)
             cams.append((K, dist, rvec, tvec))
                     
-        def to_opencv_point(X, Y, Z):
-            return (
-                X * WORLD_SCALE + WORLD_OFFSET[0],
-                -Y * WORLD_SCALE + WORLD_OFFSET[1],
-                Z * WORLD_SCALE + WORLD_OFFSET[2],
-            )
 
         for ix in range(x0, x1):
             for iy in range(y0, y1):
@@ -181,11 +199,29 @@ def set_voxel_positions(width, height, depth):
 def get_cam_positions():
     # Generates dummy camera locations at the 4 corners of the room
     # TODO: You need to input the estimated locations of the 4 cameras in the world coordinates.
-    return [[-64 * block_size, 64 * block_size, 63 * block_size],
-            [63 * block_size, 64 * block_size, 63 * block_size],
-            [63 * block_size, 64 * block_size, -64 * block_size],
-            [-64 * block_size, 64 * block_size, -64 * block_size]], \
-        [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [1.0, 1.0, 0]]
+    # return [[-64 * block_size, 64 * block_size, 63 * block_size],
+    #         [63 * block_size, 64 * block_size, 63 * block_size],
+    #         [63 * block_size, 64 * block_size, -64 * block_size],
+    #         [-64 * block_size, 64 * block_size, -64 * block_size]], \
+    #     [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [1.0, 1.0, 0]]
+
+    positions = []
+    colors = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [1.0, 1.0, 0]]
+
+
+    for cam_id in range(1, 5):
+        K, dist, rvec, tvec, _ = load_camera_config(cam_id)
+
+        R, _ = cv2.Rodrigues(rvec)          # world_cv -> cam
+        C_cv = -R.T @ tvec.reshape(3, 1)    # camera center in OpenCV world coords
+
+
+
+
+        X, Y, Z = from_opencv_world(C_cv[0, 0], C_cv[1, 0], C_cv[2, 0])
+        positions.append([X, Y, Z])
+
+    return positions, colors
 
 
     # R_matrices = []
@@ -197,12 +233,29 @@ def get_cam_positions():
 def get_cam_rotation_matrices():
     # Generates dummy camera rotation matrices, looking down 45 degrees towards the center of the room
     # TODO: You need to input the estimated camera rotation matrices (4x4) of the 4 cameras in the world coordinates.
-    cam_angles = [[0, 45, -45], [0, 135, -45], [0, 225, -45], [0, 315, -45]]
-    cam_rotations = [glm.mat4(1), glm.mat4(1), glm.mat4(1), glm.mat4(1)]
-    for c in range(len(cam_rotations)):
-        cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][0] * np.pi / 180, [1, 0, 0])
-        cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][1] * np.pi / 180, [0, 1, 0])
-        cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][2] * np.pi / 180, [0, 0, 1])
+    # cam_angles = [[0, 45, -45], [0, 135, -45], [0, 225, -45], [0, 315, -45]]
+    # cam_rotations = [glm.mat4(1), glm.mat4(1), glm.mat4(1), glm.mat4(1)]
+    # for c in range(len(cam_rotations)):
+    #     cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][0] * np.pi / 180, [1, 0, 0])
+    #     cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][1] * np.pi / 180, [0, 1, 0])
+    #     cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][2] * np.pi / 180, [0, 0, 1])
+    # return cam_rotations
+
+    cam_rotations = []
+    P = np.array([[1,0,0],
+                   [0,0,1],
+                   [0,1,0]], dtype=np.float32)
+
+    for cam_id in range(1, 5):
+        K, dist, rvec, tvec, _ = load_camera_config(cam_id)
+
+        R_wc_cv, _ = cv2.Rodrigues(rvec)     # world_cv -> cam
+        R_cw_cv = R_wc_cv.T                  # cam -> world_cv
+
+        R_cw_yours = P @ R_cw_cv             # cam -> world_yours (axis swap)
+
+        cam_rotations.append(np_R_to_glm_mat4(R_cw_yours))
+
     return cam_rotations
 
 
@@ -215,6 +268,7 @@ def debug_print_camera_centers():
 
 def main():
     debug_print_camera_centers()
+    debug_print_camera_centers_converted()
 
 if __name__ == "__main__":
     main()
