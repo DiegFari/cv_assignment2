@@ -119,6 +119,8 @@ def do_calibration(name, obj, img):
         print("cx std:", std_intr[2])
         print("cy std:", std_intr[3])
 
+        # Choice task 7: identification and rejection of low quality calibration frames
+
         # now we are gonna drop the 5 frames with the higest error to make calibration more stable and have a cleaner output
 
         errs = per_view_err.reshape(-1)
