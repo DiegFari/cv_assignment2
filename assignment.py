@@ -11,20 +11,21 @@ lookup_table = {}
 MASK_FILES = None
 FRAME_IDX = 0
 WORLD_SCALE = 0.05
-#WORLD_OFFSET = np.array([-2.05, 0.45, -2.30], dtype=np.float32)
 
 def np_R_to_glm_mat4(R: np.ndarray) -> glm.mat4:
+    """This function just reshapes the rotation matrix in the right format and returns it in glm format as needed """
     R = np.asarray(R, dtype=np.float32)
     assert R.shape == (3, 3), f"Expected (3,3), got {R.shape}"
 
     M = glm.mat4(1.0)
-    # GLM matrices are column-major: M[col][row]
+    # GLM matrices are column-major 
     for row in range(3):
         for col in range(3):
             M[col][row] = float(R[row, col])
     return M
 
 def load_camera_config(cam_number):
+    """This function simply loads all the camera parameters (intrinsics and extrinsics)  from the config files """
 
     config_path = os.path.join(
         SCRIPT_DIR,
@@ -46,8 +47,9 @@ def load_camera_config(cam_number):
 
     return camera_matrix, distortion_coeffs, rvec, tvec, rotation_matrix
 
-# returns list of 4 lists, each list contains num_frames filepaths
+
 def get_masks(num_frames=100):
+    """ this function gets the masks for each camera, it just returns list of 4 lists, each list contains num_frames filepaths"""
     mask_files_by_cam = []
     for cam_id in range(1, 5):
         masks_dir = os.path.join(DATA_DIR, f"cam{cam_id}", "masks")
@@ -60,11 +62,12 @@ def get_masks(num_frames=100):
     return mask_files_by_cam
 
 def load_masks_for_frame(mask_files_by_cam, frame_idx):
+    """ this function just loads the masks for each frame """
     masks = []
     for cam_i in range(4):
         path = mask_files_by_cam[cam_i][frame_idx]
         m = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        # creates boolean mask (white=foreground=true / black=background=false)
+        # boolean mask (white=foreground=true / black=background=false)
         masks.append(m != 0)
     return masks
 
@@ -179,7 +182,8 @@ def set_voxel_positions(width, height, depth):
     
 
 def get_cam_positions():
-    # Camera centers from extrinsics, converted to the visualizer's world coordinates
+
+    # Camera centers from extrinsics, converted to world coordinates
     cam_positions = []
     cam_colors = [
         [1.0, 0.0, 0.0],
@@ -191,7 +195,7 @@ def get_cam_positions():
     for cam_id in range(1, 5):
         _, _, rvec, tvec, rotation_matrix = load_camera_config(cam_id)
 
-        # OpenCV world -> camera: X_cam = R X_world + t
+        # now we have to convert them to camera coordinates with rodriguez 
         R = rotation_matrix
         if R is None or R.size == 0:
             R, _ = cv2.Rodrigues(rvec)
@@ -200,8 +204,7 @@ def get_cam_positions():
         C_cv = -R.T @ tvec.reshape(3, 1)
         C_cv = C_cv.reshape(3)
 
-        # Convert from calibration axes to visualizer axes:
-        # (Xcv, Ycv, Zcv) -> (x, y, z) = (Xcv, -Zcv, Ycv)
+        # Converting from calibration axes to visualizer axes:
         C_vis = np.array([
             C_cv[0],
             -C_cv[2],
@@ -216,18 +219,13 @@ def get_cam_positions():
 def get_cam_rotation_matrices():
     cam_rotations = []
 
-    # Converts vectors from calibration-world basis to visualizer-world basis
+    # Converting vectors from calibration-world basis to visualizer-world basis
     cv_world_to_vis_world = np.array([
         [1, 0,  0],
         [0, 0, -1],
         [0, 1,  0],
     ], dtype=np.float32)
 
-    # camera.json points along +x in model space.
-    # Map mesh axes -> OpenCV camera axes:
-    #   mesh +x (forward) -> cv camera +z (forward)
-    #   mesh +y (up)      -> cv camera -y (up, since cv +y is down)
-    #   mesh +z           -> cv camera +x
     mesh_to_cv_cam = np.array([
         [0,  0, 1],
         [0, -1, 0],
@@ -241,11 +239,11 @@ def get_cam_rotation_matrices():
         if R is None or R.size == 0:
             R, _ = cv2.Rodrigues(rvec)
 
-        # OpenCV extrinsics give world -> camera.
-        # For a camera object in the scene, we need camera -> world.
+        # OpenCV extrinsics to  camera 
+        # For a camera object in the scene, we need camera to world
         R_cam_to_world_cv = R.T
 
-        # Convert into the visualizer's world basis and account for mesh orientation
+        # Convert into world basis and account for mesh orientation
         R_mesh_to_world_vis = cv_world_to_vis_world @ R_cam_to_world_cv @ mesh_to_cv_cam
 
         cam_rotations.append(np_R_to_glm_mat4(R_mesh_to_world_vis))
