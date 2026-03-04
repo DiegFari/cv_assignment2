@@ -11,7 +11,7 @@ lookup_table = {}
 MASK_FILES = None
 FRAME_IDX = 0
 WORLD_SCALE = 0.05
-WORLD_OFFSET = np.array([-2.05, 0.45, -2.30], dtype=np.float32)
+#WORLD_OFFSET = np.array([-2.05, 0.45, -2.30], dtype=np.float32)
 
 def np_R_to_glm_mat4(R: np.ndarray) -> glm.mat4:
     R = np.asarray(R, dtype=np.float32)
@@ -103,9 +103,9 @@ def set_voxel_positions(width, height, depth):
                     
         def to_opencv_point(X, Y, Z):
             return (
-                X * WORLD_SCALE + WORLD_OFFSET[0],
-                -Y * WORLD_SCALE + WORLD_OFFSET[1],
-                Z * WORLD_SCALE + WORLD_OFFSET[2],
+                X * WORLD_SCALE,
+                Z * WORLD_SCALE,
+                -Y * WORLD_SCALE + 0.5,
             )
 
         for ix in range(x0, x1):
@@ -179,30 +179,77 @@ def set_voxel_positions(width, height, depth):
     
 
 def get_cam_positions():
-    # Generates dummy camera locations at the 4 corners of the room
-    # TODO: You need to input the estimated locations of the 4 cameras in the world coordinates.
-    return [[-64 * block_size, 64 * block_size, 63 * block_size],
-            [63 * block_size, 64 * block_size, 63 * block_size],
-            [63 * block_size, 64 * block_size, -64 * block_size],
-            [-64 * block_size, 64 * block_size, -64 * block_size]], \
-        [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [1.0, 1.0, 0]]
+    # Camera centers from extrinsics, converted to the visualizer's world coordinates
+    cam_positions = []
+    cam_colors = [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        [1.0, 1.0, 0.0],
+    ]
 
+    for cam_id in range(1, 5):
+        _, _, rvec, tvec, rotation_matrix = load_camera_config(cam_id)
 
-    # R_matrices = []
-    # for cam_id in range (1, 5): 
-    #     K, dist, rvecs, tvecs, R = np_R_to_glm_mat4(load_camera_config(cam_id))
-    #     R_matrices.append(R)
-    # return R_matrices
+        # OpenCV world -> camera: X_cam = R X_world + t
+        R = rotation_matrix
+        if R is None or R.size == 0:
+            R, _ = cv2.Rodrigues(rvec)
+
+        # Camera center in calibration/world coordinates
+        C_cv = -R.T @ tvec.reshape(3, 1)
+        C_cv = C_cv.reshape(3)
+
+        # Convert from calibration axes to visualizer axes:
+        # (Xcv, Ycv, Zcv) -> (x, y, z) = (Xcv, -Zcv, Ycv)
+        C_vis = np.array([
+            C_cv[0],
+            -C_cv[2],
+            C_cv[1],
+        ], dtype=np.float32) / WORLD_SCALE
+
+        cam_positions.append(C_vis.tolist())
+
+    return cam_positions, cam_colors
+
 
 def get_cam_rotation_matrices():
-    # Generates dummy camera rotation matrices, looking down 45 degrees towards the center of the room
-    # TODO: You need to input the estimated camera rotation matrices (4x4) of the 4 cameras in the world coordinates.
-    cam_angles = [[0, 45, -45], [0, 135, -45], [0, 225, -45], [0, 315, -45]]
-    cam_rotations = [glm.mat4(1), glm.mat4(1), glm.mat4(1), glm.mat4(1)]
-    for c in range(len(cam_rotations)):
-        cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][0] * np.pi / 180, [1, 0, 0])
-        cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][1] * np.pi / 180, [0, 1, 0])
-        cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][2] * np.pi / 180, [0, 0, 1])
+    cam_rotations = []
+
+    # Converts vectors from calibration-world basis to visualizer-world basis
+    cv_world_to_vis_world = np.array([
+        [1, 0,  0],
+        [0, 0, -1],
+        [0, 1,  0],
+    ], dtype=np.float32)
+
+    # camera.json points along +x in model space.
+    # Map mesh axes -> OpenCV camera axes:
+    #   mesh +x (forward) -> cv camera +z (forward)
+    #   mesh +y (up)      -> cv camera -y (up, since cv +y is down)
+    #   mesh +z           -> cv camera +x
+    mesh_to_cv_cam = np.array([
+        [0,  0, 1],
+        [0, -1, 0],
+        [1,  0, 0],
+    ], dtype=np.float32)
+
+    for cam_id in range(1, 5):
+        _, _, rvec, _, rotation_matrix = load_camera_config(cam_id)
+
+        R = rotation_matrix
+        if R is None or R.size == 0:
+            R, _ = cv2.Rodrigues(rvec)
+
+        # OpenCV extrinsics give world -> camera.
+        # For a camera object in the scene, we need camera -> world.
+        R_cam_to_world_cv = R.T
+
+        # Convert into the visualizer's world basis and account for mesh orientation
+        R_mesh_to_world_vis = cv_world_to_vis_world @ R_cam_to_world_cv @ mesh_to_cv_cam
+
+        cam_rotations.append(np_R_to_glm_mat4(R_mesh_to_world_vis))
+
     return cam_rotations
 
 
